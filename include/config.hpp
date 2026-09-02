@@ -22,7 +22,11 @@ struct Config {
     double cube_size{1.0};
 
     double dt{0.5};
-    double speed{2.0};
+    double horizontal_speed{2.0};
+    double vertical_speed{1.0};
+    double uav_radius{0.15};
+    double safety_margin{0.10};
+    double occupancy_dt{0.10};
     double max_search_time{300.0};
 
     std::uint32_t seed{42};

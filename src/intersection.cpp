@@ -1,7 +1,5 @@
 #include "intersection.hpp"
 
-#include <algorithm>
-#include <iterator>
 #include <stdexcept>
 #include <utility>
 
@@ -63,19 +61,34 @@ std::vector<Cube> Intersection::straightLine(Direction source) const {
 
 std::vector<CandidatePath> Intersection::buildStraightPaths(Direction source) const {
     const std::vector<Cube> middle = straightLine(source);
+    const auto cubeCenter = [this](const Cube& cube) {
+        return Point3D{
+            (static_cast<double>(cube.x) + 0.5) * cube_size_,
+            (static_cast<double>(cube.y) + 0.5) * cube_size_,
+            (static_cast<double>(cube.z) + 0.5) * cube_size_,
+        };
+    };
+    const Point3D middle_start = cubeCenter(middle.front());
+    const Point3D middle_end = cubeCenter(middle.back());
     std::vector<CandidatePath> paths;
-    paths.push_back({0, middle});
+    paths.push_back({0, {{middle_start, middle_end, SegmentType::Horizontal}}});
 
-    for (const auto& [path_id, height] : {std::pair{1, 2}, std::pair{2, 0}}) {
-        std::vector<Cube> layered;
-        layered.reserve(middle.size() + 2U);
-        layered.push_back(middle.front());
-        std::transform(middle.begin(), middle.end(), std::back_inserter(layered), [height](Cube cube) {
-            cube.z = height;
-            return cube;
+    for (const auto& [path_id, height] :
+         {std::pair{1, 2}, std::pair{2, 0}}) {
+        Cube layered_start_cube = middle.front();
+        Cube layered_end_cube = middle.back();
+        layered_start_cube.z = height;
+        layered_end_cube.z = height;
+        const Point3D layered_start = cubeCenter(layered_start_cube);
+        const Point3D layered_end = cubeCenter(layered_end_cube);
+        paths.push_back({
+            path_id,
+            {
+                {middle_start, layered_start, SegmentType::Vertical},
+                {layered_start, layered_end, SegmentType::Horizontal},
+                {layered_end, middle_end, SegmentType::Vertical},
+            },
         });
-        layered.push_back(middle.back());
-        paths.push_back({path_id, std::move(layered)});
     }
     return paths;
 }

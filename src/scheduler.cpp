@@ -16,6 +16,7 @@ FCFSScheduler::FCFSScheduler(
     if (config_.dt <= 0.0 || config_.max_search_time < 0.0) {
         throw std::invalid_argument("Scheduler dt must be positive and max search time non-negative");
     }
+    validateTrajectoryConfig(config_);
 }
 
 void FCFSScheduler::schedule(UAV& uav) {
@@ -43,8 +44,7 @@ void FCFSScheduler::schedule(UAV& uav, const std::vector<CandidatePath>& candida
             if (config_.layer_mode == LayerMode::MiddleOnly && path.id != 0) {
                 continue;
             }
-            TimedTrajectory trajectory =
-                makeTimedTrajectory(path, entry_time, uav.speed, intersection_.cubeSize());
+            TimedTrajectory trajectory = makeTimedTrajectory(path, entry_time, config_);
             if (!reservations_.isTrajectoryAvailable(trajectory)) {
                 continue;
             }

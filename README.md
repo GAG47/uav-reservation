@@ -13,7 +13,9 @@ reproduction of any paper.
 - A `10 x 10 x 3` intersection grid with configurable cube size
 - Straight movements from North, South, East, and West to the opposite side
 - Three predefined candidate paths per movement: middle, upper, and lower
-- Fixed-speed timed trajectories
+- Horizontal and vertical trajectory segments with separate fixed speeds
+- Spherical UAV safety volumes sampled along continuous 3D motion
+- Swept-volume Cube occupancy with merged time intervals
 - Half-open cube reservations (`[start, end)`)
 - Deterministic and seeded Poisson traffic generation
 - FCFS ordering by arrival time, then UAV ID
@@ -37,8 +39,9 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-The tests cover reservation correctness, layer-mode selection, observation-window completion,
-departure throughput, P95 delay, random-seed reproducibility, and benchmark aggregation.
+The tests cover reservation correctness, horizontal/vertical travel time, safety-volume
+occupancy, vertical-transition conflicts, height separation, sampling validation, unchanged
+EarliestEntry FCFS behavior, layer-mode selection, statistics, and reproducibility.
 
 ## Run
 
@@ -47,12 +50,25 @@ departure throughput, P95 delay, random-seed reproducibility, and benchmark aggr
     --arrival-rate 0.5 \
     --duration 100 \
     --seed 42 \
-    --mode three_layers
+    --mode three_layers \
+    --horizontal-speed 2.0 \
+    --vertical-speed 1.0 \
+    --uav-radius 0.15 \
+    --safety-margin 0.10 \
+    --occupancy-dt 0.10
 ```
 
 Run `./build/uav_reservation --help` for all options. Without arguments, the program uses the
 defaults in `Config`. `arrival_rate` is the total rate for the whole intersection in UAV/s;
 it is not a per-direction rate. Each generated UAV chooses one of the four sources uniformly.
+
+The middle path is one horizontal segment. Upper and lower paths consist of a vertical
+transition, a horizontal crossing, and a final vertical transition. Segment time is distance
+divided by the matching horizontal or vertical speed. At each occupancy sampling interval,
+the simulator reserves every grid Cube intersected by the UAV safety sphere, whose radius is
+`uav_radius + safety_margin`. Consecutive or overlapping intervals for the same Cube are
+merged before reservation. Configuration is rejected when the maximum center movement per
+sample exceeds `0.5 * cube_size`.
 
 The run writes `results/results.csv` and prints generated, completed, and unfinished counts;
 completed/all-scheduled average delays; maximum and P95 completed-UAV delays; average system

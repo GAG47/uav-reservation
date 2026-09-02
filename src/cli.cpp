@@ -79,10 +79,13 @@ const char* requireValue(int argc, char* argv[], int& index) {
 
 void validate(const Config& config) {
     if (config.arrival_rate <= 0.0 || config.simulation_duration <= 0.0 ||
-        config.dt <= 0.0 || config.speed <= 0.0 || config.cube_size <= 0.0 ||
-        config.max_search_time < 0.0) {
+        config.dt <= 0.0 || config.horizontal_speed <= 0.0 ||
+        config.vertical_speed <= 0.0 || config.cube_size <= 0.0 ||
+        config.uav_radius <= 0.0 || config.safety_margin < 0.0 ||
+        config.occupancy_dt <= 0.0 || config.max_search_time < 0.0) {
         throw std::invalid_argument(
-            "Arrival rate, duration, dt, speed, and cube size must be positive");
+            "Arrival rate, duration, dt, speeds, cube size, UAV radius, and occupancy_dt "
+            "must be positive; safety margin must be non-negative");
     }
     if (config.nx < 2 || config.ny < 2 || config.nz < 3) {
         throw std::invalid_argument("Grid dimensions must satisfy nx >= 2, ny >= 2, nz >= 3");
@@ -107,8 +110,21 @@ CommandLineOptions parseCommandLine(int argc, char* argv[]) {
             options.config.layer_mode = parseMode(requireValue(argc, argv, index));
         } else if (option == "--dt") {
             options.config.dt = parseDouble(option, requireValue(argc, argv, index));
-        } else if (option == "--speed") {
-            options.config.speed = parseDouble(option, requireValue(argc, argv, index));
+        } else if (option == "--horizontal-speed") {
+            options.config.horizontal_speed =
+                parseDouble(option, requireValue(argc, argv, index));
+        } else if (option == "--vertical-speed") {
+            options.config.vertical_speed =
+                parseDouble(option, requireValue(argc, argv, index));
+        } else if (option == "--uav-radius") {
+            options.config.uav_radius =
+                parseDouble(option, requireValue(argc, argv, index));
+        } else if (option == "--safety-margin") {
+            options.config.safety_margin =
+                parseDouble(option, requireValue(argc, argv, index));
+        } else if (option == "--occupancy-dt") {
+            options.config.occupancy_dt =
+                parseDouble(option, requireValue(argc, argv, index));
         } else if (option == "--cube-size") {
             options.config.cube_size = parseDouble(option, requireValue(argc, argv, index));
         } else if (option == "--max-search-time") {
@@ -134,7 +150,11 @@ void printUsage(std::ostream& output, const char* program_name) {
            << "  --seed INTEGER         Random seed\n"
            << "  --mode MODE            middle_only or three_layers\n"
            << "  --dt SECONDS           Scheduling time step\n"
-           << "  --speed VALUE          Fixed UAV speed\n"
+           << "  --horizontal-speed V   Fixed horizontal speed\n"
+           << "  --vertical-speed V     Fixed ascent/descent speed\n"
+           << "  --uav-radius VALUE     UAV sphere radius\n"
+           << "  --safety-margin VALUE  Additional safety distance\n"
+           << "  --occupancy-dt SEC     Swept-volume sampling interval\n"
            << "  --cube-size VALUE      Cube side length\n"
            << "  --max-search-time SEC  Scheduling search horizon\n"
            << "  --nx N --ny N --nz N   Grid dimensions\n"

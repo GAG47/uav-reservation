@@ -13,6 +13,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -31,7 +32,11 @@ bool nearlyEqual(double left, double right) {
 Config testConfig() {
     Config config;
     config.dt = 1.0;
-    config.speed = 1.0;
+    config.horizontal_speed = 1.0;
+    config.vertical_speed = 0.5;
+    config.uav_radius = 0.10;
+    config.safety_margin = 0.05;
+    config.occupancy_dt = 0.10;
     config.max_search_time = 100.0;
     return config;
 }
@@ -272,6 +277,185 @@ void testBenchmarkAggregationMeanAndStd() {
             "aggregate unfinished mean");
 }
 
+void testHorizontalMovementTime() {
+    const TrajectorySegment segment{
+        {0.0, 0.0, 1.5}, {10.0, 0.0, 1.5}, SegmentType::Horizontal};
+    require(nearlyEqual(segmentTravelTime(segment, 5.0, 2.5), 2.0),
+            "10 m horizontal movement at 5 m/s must take 2 s");
+}
+
+void testVerticalMovementTime() {
+    const TrajectorySegment segment{
+        {2.0, 3.0, 0.0}, {2.0, 3.0, 5.0}, SegmentType::Vertical};
+    require(nearlyEqual(segmentTravelTime(segment, 5.0, 2.5), 2.0),
+            "5 m vertical movement at 2.5 m/s must take 2 s");
+}
+
+void testSlowVerticalSpeedIncreasesLayeredPathTime() {
+    Config config = testConfig();
+    config.horizontal_speed = 2.0;
+    config.vertical_speed = 0.25;
+    const Intersection intersection(config.nx, config.ny, config.nz, config.cube_size);
+    const auto& paths =
+        intersection.candidatePaths(Direction::North, Direction::South, Movement::Straight);
+
+    const TimedTrajectory middle = makeTimedTrajectory(paths.at(0), 0.0, config);
+    const TimedTrajectory upper = makeTimedTrajectory(paths.at(1), 0.0, config);
+    const TimedTrajectory lower = makeTimedTrajectory(paths.at(2), 0.0, config);
+
+    require(upper.exit_time > middle.exit_time && lower.exit_time > middle.exit_time,
+            "slow vertical speed must add real travel time to upper/lower paths");
+    require(nearlyEqual(upper.exit_time, lower.exit_time),
+            "symmetric upper/lower paths must have equal travel times");
+}
+
+CandidatePath horizontalPath(int id, double z) {
+    return {id,
+            {{{2.5, 4.5, z}, {6.5, 4.5, z}, SegmentType::Horizontal}}};
+}
+
+std::unordered_set<Cube, CubeHash> occupiedCubes(const TimedTrajectory& trajectory) {
+    std::unordered_set<Cube, CubeHash> cubes;
+    for (const Occupancy& occupancy : trajectory.occupancies) {
+        cubes.insert(occupancy.cube);
+    }
+    return cubes;
+}
+
+void testSafetySphereOccupiesMultipleCubes() {
+    Config config = testConfig();
+    config.uav_radius = 0.60;
+    config.safety_margin = 0.0;
+    const TimedTrajectory trajectory =
+        makeTimedTrajectory(horizontalPath(10, 1.5), 0.0, config);
+
+    std::size_t simultaneous_cube_count = 0U;
+    constexpr double observation_time = 0.05;
+    for (const Occupancy& occupancy : trajectory.occupancies) {
+        if (occupancy.start_time <= observation_time &&
+            observation_time < occupancy.end_time) {
+            ++simultaneous_cube_count;
+        }
+    }
+    require(simultaneous_cube_count > 1U,
+            "a sufficiently large safety sphere must occupy adjacent cubes simultaneously");
+}
+
+void testLargerSafetyMarginDoesNotReduceOccupiedCubes() {
+    Config small = testConfig();
+    small.uav_radius = 0.10;
+    small.safety_margin = 0.0;
+    Config large = small;
+    large.safety_margin = 0.55;
+    const CandidatePath path = horizontalPath(11, 1.5);
+    const auto small_cubes = occupiedCubes(makeTimedTrajectory(path, 0.0, small));
+    const auto large_cubes = occupiedCubes(makeTimedTrajectory(path, 0.0, large));
+
+    require(large_cubes.size() >= small_cubes.size(),
+            "larger margin must not reduce occupied cube count");
+    for (const Cube& cube : small_cubes) {
+        require(large_cubes.contains(cube),
+                "large-margin occupancy must include every small-margin cube");
+    }
+}
+
+void testVerticalTransitionVolumeConflicts() {
+    Config config = testConfig();
+    config.horizontal_speed = 2.0;
+    config.vertical_speed = 1.0;
+    const CandidatePath vertical{
+        20, {{{4.5, 4.5, 1.5}, {4.5, 4.5, 2.5}, SegmentType::Vertical}}};
+    const CandidatePath crossing{
+        21, {{{3.5, 4.5, 2.0}, {5.5, 4.5, 2.0}, SegmentType::Horizontal}}};
+    const TimedTrajectory vertical_trajectory =
+        makeTimedTrajectory(vertical, 0.0, config);
+    const TimedTrajectory crossing_trajectory =
+        makeTimedTrajectory(crossing, 0.0, config);
+    ReservationTable table(config.nx, config.ny, config.nz);
+    table.reserveTrajectory(vertical_trajectory, 1);
+
+    require(!table.isTrajectoryAvailable(crossing_trajectory),
+            "a horizontal path through an active vertical transition must conflict");
+}
+
+void testSufficientHeightSeparationIsAvailable() {
+    Config config = testConfig();
+    const CandidatePath low{
+        30, {{{2.5, 4.5, 0.5}, {6.5, 4.5, 0.5}, SegmentType::Horizontal}}};
+    const CandidatePath high{
+        31, {{{4.5, 2.5, 2.5}, {4.5, 6.5, 2.5}, SegmentType::Horizontal}}};
+    ReservationTable table(config.nx, config.ny, config.nz);
+    table.reserveTrajectory(makeTimedTrajectory(low, 0.0, config), 1);
+
+    require(table.isTrajectoryAvailable(makeTimedTrajectory(high, 0.0, config)),
+            "XY crossings with sufficient height separation must remain available");
+}
+
+void testInsufficientHeightSeparationConflicts() {
+    Config config = testConfig();
+    config.uav_radius = 0.20;
+    config.safety_margin = 0.0;
+    const CandidatePath lower{
+        40, {{{2.5, 4.5, 0.9}, {6.5, 4.5, 0.9}, SegmentType::Horizontal}}};
+    const CandidatePath higher{
+        41, {{{4.5, 2.5, 1.1}, {4.5, 6.5, 1.1}, SegmentType::Horizontal}}};
+    ReservationTable table(config.nx, config.ny, config.nz);
+    table.reserveTrajectory(makeTimedTrajectory(lower, 0.0, config), 1);
+
+    require(!table.isTrajectoryAvailable(makeTimedTrajectory(higher, 0.0, config)),
+            "XY crossings with overlapping safety volumes must conflict");
+}
+
+void testUnsafeOccupancyDtIsRejected() {
+    Config config = testConfig();
+    config.horizontal_speed = 2.0;
+    config.occupancy_dt = 1.0;
+    bool rejected = false;
+    try {
+        static_cast<void>(makeTimedTrajectory(horizontalPath(50, 1.5), 0.0, config));
+    } catch (const std::invalid_argument&) {
+        rejected = true;
+    }
+    require(rejected, "occupancy_dt allowing movement over half a cube must be rejected");
+}
+
+void testOriginalEarliestEntryFcfsBehavior() {
+    Config config = testConfig();
+    config.layer_mode = LayerMode::MiddleOnly;
+    const Intersection order_intersection(config.nx, config.ny, config.nz, config.cube_size);
+    ReservationTable order_table(config.nx, config.ny, config.nz);
+    FCFSScheduler order_scheduler(config, order_intersection, order_table);
+    Simulator simulator(config, order_scheduler);
+    simulator.run({northboundUav(2, 0.0), northboundUav(1, 0.0)});
+    require(simulator.results().at(0).id == 1 && simulator.results().at(1).id == 2,
+            "FCFS ties must still be ordered by UAV id");
+
+    const Intersection intersection(config.nx, config.ny, config.nz, config.cube_size);
+    ReservationTable table(config.nx, config.ny, config.nz);
+    FCFSScheduler scheduler(config, intersection, table);
+    UAV first = northboundUav(1, 0.0);
+    UAV second = northboundUav(2, 0.0);
+    scheduler.schedule(first);
+
+    const CandidatePath& middle =
+        intersection.candidatePaths(Direction::North, Direction::South, Movement::Straight).front();
+    double first_feasible_entry = -1.0;
+    for (int step = 0; step <= 10; ++step) {
+        const double entry_time = static_cast<double>(step) * config.dt;
+        if (table.isTrajectoryAvailable(makeTimedTrajectory(middle, entry_time, config))) {
+            first_feasible_entry = entry_time;
+            break;
+        }
+    }
+    scheduler.schedule(second);
+
+    require(nearlyEqual(first.scheduled_entry_time, 0.0),
+            "first FCFS UAV must enter at its arrival time");
+    require(first_feasible_entry >= 0.0 &&
+                nearlyEqual(second.scheduled_entry_time, first_feasible_entry),
+            "second UAV must use the first feasible dt entry slot");
+}
+
 }  // namespace
 
 int main() {
@@ -290,6 +474,16 @@ int main() {
         {"P95 uses nearest rank", testP95NearestRank},
         {"fixed seed is exactly reproducible", testFixedSeedIsExactlyReproducible},
         {"benchmark aggregation mean and std", testBenchmarkAggregationMeanAndStd},
+        {"horizontal movement time", testHorizontalMovementTime},
+        {"vertical movement time", testVerticalMovementTime},
+        {"slow vertical speed increases layered path time", testSlowVerticalSpeedIncreasesLayeredPathTime},
+        {"safety sphere occupies multiple cubes", testSafetySphereOccupiesMultipleCubes},
+        {"larger safety margin does not reduce occupied cubes", testLargerSafetyMarginDoesNotReduceOccupiedCubes},
+        {"vertical transition volume conflicts", testVerticalTransitionVolumeConflicts},
+        {"sufficient height separation is available", testSufficientHeightSeparationIsAvailable},
+        {"insufficient height separation conflicts", testInsufficientHeightSeparationConflicts},
+        {"unsafe occupancy dt is rejected", testUnsafeOccupancyDtIsRejected},
+        {"original EarliestEntry FCFS behavior", testOriginalEarliestEntryFcfsBehavior},
     };
 
     int failures = 0;

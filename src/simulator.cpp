@@ -13,19 +13,19 @@
 Simulator::Simulator(const Config& config, FCFSScheduler& scheduler)
     : config_(config), scheduler_(scheduler) {
     if (config_.simulation_duration <= 0.0 || config_.arrival_rate <= 0.0 ||
-        config_.speed <= 0.0) {
+        config_.horizontal_speed <= 0.0 || config_.vertical_speed <= 0.0) {
         throw std::invalid_argument("Simulation duration, arrival rate, and speed must be positive");
     }
 }
 
 std::vector<UAV> Simulator::deterministicTraffic() const {
     return {
-        {1, 0.0, Direction::North, Direction::South, Movement::Straight, config_.speed},
-        {2, 0.0, Direction::East, Direction::West, Movement::Straight, config_.speed},
-        {3, 1.0, Direction::South, Direction::North, Movement::Straight, config_.speed},
-        {4, 1.0, Direction::West, Direction::East, Movement::Straight, config_.speed},
-        {5, 2.0, Direction::North, Direction::South, Movement::Straight, config_.speed},
-        {6, 2.0, Direction::East, Direction::West, Movement::Straight, config_.speed},
+        {1, 0.0, Direction::North, Direction::South, Movement::Straight, config_.horizontal_speed},
+        {2, 0.0, Direction::East, Direction::West, Movement::Straight, config_.horizontal_speed},
+        {3, 1.0, Direction::South, Direction::North, Movement::Straight, config_.horizontal_speed},
+        {4, 1.0, Direction::West, Direction::East, Movement::Straight, config_.horizontal_speed},
+        {5, 2.0, Direction::North, Direction::South, Movement::Straight, config_.horizontal_speed},
+        {6, 2.0, Direction::East, Direction::West, Movement::Straight, config_.horizontal_speed},
     };
 }
 
@@ -46,7 +46,12 @@ std::vector<UAV> Simulator::poissonTraffic() const {
         }
         const Direction source = directions[static_cast<std::size_t>(source_distribution(generator))];
         traffic.push_back(
-            {id++, arrival_time, source, opposite(source), Movement::Straight, config_.speed});
+            {id++,
+             arrival_time,
+             source,
+             opposite(source),
+             Movement::Straight,
+             config_.horizontal_speed});
     }
     return traffic;
 }

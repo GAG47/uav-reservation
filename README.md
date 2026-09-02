@@ -113,3 +113,37 @@ python3 scripts/plot_benchmark.py
 
 This requires Matplotlib and produces average-delay, P95-delay, and departure-throughput
 plots in `results/`. Inside an activated virtual environment, `python` may be used instead.
+
+## Reference Scenario: Li et al. (2024)
+
+The project also includes a two-road, double-layer along-road environment selected with:
+
+```sh
+./build/uav_reservation \
+    --scenario reference-2024-along-road \
+    --arrival-rate-per-route 3 \
+    --seed 42
+```
+
+The four active inlets each use an independent Poisson arrival process. The CLI rate is in
+UAV/min/route, so a value of 3 means an expected total of 12 UAV/min over four routes. Poisson
+arrival is inherited from this simulator and is not directly specified by the 2024 paper.
+
+Reference paths use continuous world coordinates, 60/90 m flight levels, continuous
+quarter-circle same-level turns, and separate one-way ascent/descent elevators for cross-level
+turns. The reference safety model is a deterministic cylindrical envelope that adapts the
+paper’s 15 m horizontal and 1 m vertical operational separation values to Cube-Time
+Reservation. It is not a direct reproduction of the paper’s spherical protected-zone formula.
+
+Direct, derived, and adapted parameters—including the actual `118 × 118 × 34` grid covering
+`[-59,59) × [-59,59) × [58,92)` m—are documented in
+[docs/reference_2024_along_road.md](docs/reference_2024_along_road.md).
+
+For a small deterministic geometry check:
+
+```sh
+./build/uav_reservation --scenario reference-2024-along-road --deterministic
+python3 scripts/plot_reference_trajectory.py
+```
+
+This writes `results/trajectory_debug.csv` and `results/reference_trajectory_debug.png`.

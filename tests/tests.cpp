@@ -1,6 +1,7 @@
 #include "benchmark.hpp"
 #include "config.hpp"
 #include "intersection.hpp"
+#include "reference_scenario.hpp"
 #include "reservation_table.hpp"
 #include "scheduler.hpp"
 #include "simulator.hpp"
@@ -8,9 +9,11 @@
 #include "trajectory.hpp"
 #include "uav.hpp"
 
+#include <array>
 #include <cmath>
 #include <exception>
 #include <iostream>
+#include <numbers>
 #include <stdexcept>
 #include <string>
 #include <unordered_set>
@@ -33,7 +36,8 @@ Config testConfig() {
     Config config;
     config.dt = 1.0;
     config.horizontal_speed = 1.0;
-    config.vertical_speed = 0.5;
+    config.ascending_speed = 0.5;
+    config.descending_speed = 0.5;
     config.uav_radius = 0.10;
     config.safety_margin = 0.05;
     config.occupancy_dt = 0.10;
@@ -279,22 +283,23 @@ void testBenchmarkAggregationMeanAndStd() {
 
 void testHorizontalMovementTime() {
     const TrajectorySegment segment{
-        {0.0, 0.0, 1.5}, {10.0, 0.0, 1.5}, SegmentType::Horizontal};
-    require(nearlyEqual(segmentTravelTime(segment, 5.0, 2.5), 2.0),
+        {0.0, 0.0, 1.5}, {10.0, 0.0, 1.5}, SegmentType::HorizontalLine};
+    require(nearlyEqual(segmentTravelTime(segment, 5.0, 2.5, 2.5), 2.0),
             "10 m horizontal movement at 5 m/s must take 2 s");
 }
 
 void testVerticalMovementTime() {
     const TrajectorySegment segment{
-        {2.0, 3.0, 0.0}, {2.0, 3.0, 5.0}, SegmentType::Vertical};
-    require(nearlyEqual(segmentTravelTime(segment, 5.0, 2.5), 2.0),
+        {2.0, 3.0, 0.0}, {2.0, 3.0, 5.0}, SegmentType::Ascending};
+    require(nearlyEqual(segmentTravelTime(segment, 5.0, 2.5, 2.5), 2.0),
             "5 m vertical movement at 2.5 m/s must take 2 s");
 }
 
 void testSlowVerticalSpeedIncreasesLayeredPathTime() {
     Config config = testConfig();
     config.horizontal_speed = 2.0;
-    config.vertical_speed = 0.25;
+    config.ascending_speed = 0.25;
+    config.descending_speed = 0.25;
     const Intersection intersection(config.nx, config.ny, config.nz, config.cube_size);
     const auto& paths =
         intersection.candidatePaths(Direction::North, Direction::South, Movement::Straight);
@@ -311,7 +316,7 @@ void testSlowVerticalSpeedIncreasesLayeredPathTime() {
 
 CandidatePath horizontalPath(int id, double z) {
     return {id,
-            {{{2.5, 4.5, z}, {6.5, 4.5, z}, SegmentType::Horizontal}}};
+            {{{2.5, 4.5, z}, {6.5, 4.5, z}, SegmentType::HorizontalLine}}};
 }
 
 std::unordered_set<Cube, CubeHash> occupiedCubes(const TimedTrajectory& trajectory) {
@@ -362,11 +367,12 @@ void testLargerSafetyMarginDoesNotReduceOccupiedCubes() {
 void testVerticalTransitionVolumeConflicts() {
     Config config = testConfig();
     config.horizontal_speed = 2.0;
-    config.vertical_speed = 1.0;
+    config.ascending_speed = 1.0;
+    config.descending_speed = 1.0;
     const CandidatePath vertical{
-        20, {{{4.5, 4.5, 1.5}, {4.5, 4.5, 2.5}, SegmentType::Vertical}}};
+        20, {{{4.5, 4.5, 1.5}, {4.5, 4.5, 2.5}, SegmentType::Ascending}}};
     const CandidatePath crossing{
-        21, {{{3.5, 4.5, 2.0}, {5.5, 4.5, 2.0}, SegmentType::Horizontal}}};
+        21, {{{3.5, 4.5, 2.0}, {5.5, 4.5, 2.0}, SegmentType::HorizontalLine}}};
     const TimedTrajectory vertical_trajectory =
         makeTimedTrajectory(vertical, 0.0, config);
     const TimedTrajectory crossing_trajectory =
@@ -381,9 +387,9 @@ void testVerticalTransitionVolumeConflicts() {
 void testSufficientHeightSeparationIsAvailable() {
     Config config = testConfig();
     const CandidatePath low{
-        30, {{{2.5, 4.5, 0.5}, {6.5, 4.5, 0.5}, SegmentType::Horizontal}}};
+        30, {{{2.5, 4.5, 0.5}, {6.5, 4.5, 0.5}, SegmentType::HorizontalLine}}};
     const CandidatePath high{
-        31, {{{4.5, 2.5, 2.5}, {4.5, 6.5, 2.5}, SegmentType::Horizontal}}};
+        31, {{{4.5, 2.5, 2.5}, {4.5, 6.5, 2.5}, SegmentType::HorizontalLine}}};
     ReservationTable table(config.nx, config.ny, config.nz);
     table.reserveTrajectory(makeTimedTrajectory(low, 0.0, config), 1);
 
@@ -396,9 +402,9 @@ void testInsufficientHeightSeparationConflicts() {
     config.uav_radius = 0.20;
     config.safety_margin = 0.0;
     const CandidatePath lower{
-        40, {{{2.5, 4.5, 0.9}, {6.5, 4.5, 0.9}, SegmentType::Horizontal}}};
+        40, {{{2.5, 4.5, 0.9}, {6.5, 4.5, 0.9}, SegmentType::HorizontalLine}}};
     const CandidatePath higher{
-        41, {{{4.5, 2.5, 1.1}, {4.5, 6.5, 1.1}, SegmentType::Horizontal}}};
+        41, {{{4.5, 2.5, 1.1}, {4.5, 6.5, 1.1}, SegmentType::HorizontalLine}}};
     ReservationTable table(config.nx, config.ny, config.nz);
     table.reserveTrajectory(makeTimedTrajectory(lower, 0.0, config), 1);
 
@@ -456,6 +462,439 @@ void testOriginalEarliestEntryFcfsBehavior() {
             "second UAV must use the first feasible dt entry slot");
 }
 
+Config referenceConfig() {
+    Config config = makeReference2024Config();
+    config.simulation_duration = 120.0;
+    config.max_search_time = 300.0;
+    return config;
+}
+
+const TrajectorySegment& verticalSegment(const CandidatePath& path) {
+    for (const TrajectorySegment& segment : path.segments) {
+        if (segment.type == SegmentType::Ascending ||
+            segment.type == SegmentType::Descending) {
+            return segment;
+        }
+    }
+    throw std::runtime_error("expected a vertical segment");
+}
+
+const TrajectorySegment& arcSegment(const CandidatePath& path) {
+    for (const TrajectorySegment& segment : path.segments) {
+        if (segment.type == SegmentType::HorizontalArc) {
+            return segment;
+        }
+    }
+    throw std::runtime_error("expected an arc segment");
+}
+
+void testReferenceLevelsAndGrid() {
+    const Config config = referenceConfig();
+    require(nearlyEqual(config.reference.lower_level, 60.0) &&
+                nearlyEqual(config.reference.upper_level, 90.0),
+            "reference levels must be 60/90 m");
+    require(config.nx == 118 && config.ny == 118 && config.nz == 34,
+            "reference grid dimensions must follow the padding formula");
+    require(nearlyEqual(config.grid_origin_x, -59.0) &&
+                nearlyEqual(config.grid_origin_y, -59.0) &&
+                nearlyEqual(config.grid_origin_z, 58.0),
+            "reference grid origins must follow the padding formula");
+}
+
+void testReferenceHorizontalTravelTime() {
+    const Config config = referenceConfig();
+    const TrajectorySegment segment{
+        {0.0, 0.0, 60.0}, {60.0, 0.0, 60.0}, SegmentType::HorizontalLine};
+    require(nearlyEqual(
+                segmentTravelTime(
+                    segment,
+                    config.horizontal_speed,
+                    config.ascending_speed,
+                    config.descending_speed),
+                10.0),
+            "reference 60 m horizontal travel must take 10 s");
+}
+
+void testReferenceAscendingTravelTime() {
+    const Config config = referenceConfig();
+    const TrajectorySegment segment{
+        {-8.0, 0.0, 60.0}, {-8.0, 0.0, 90.0}, SegmentType::Ascending};
+    require(nearlyEqual(
+                segmentTravelTime(
+                    segment,
+                    config.horizontal_speed,
+                    config.ascending_speed,
+                    config.descending_speed),
+                7.5),
+            "reference ascent must take 7.5 s");
+}
+
+void testReferenceDescendingTravelTime() {
+    const Config config = referenceConfig();
+    const TrajectorySegment segment{
+        {8.0, 0.0, 90.0}, {8.0, 0.0, 60.0}, SegmentType::Descending};
+    require(nearlyEqual(
+                segmentTravelTime(
+                    segment,
+                    config.horizontal_speed,
+                    config.ascending_speed,
+                    config.descending_speed),
+                10.0),
+            "reference descent must take 10 s");
+}
+
+void testReferenceMinimumTurningRadiusFormula() {
+    const Config config = referenceConfig();
+    const double expected = 36.0 / (9.81 * std::tan(std::numbers::pi / 4.0));
+    require(nearlyEqual(referenceMinimumTurningRadius(config), expected),
+            "reference minimum turning radius formula");
+}
+
+void testReferenceMaximumTurningRadiusFormula() {
+    const Config config = referenceConfig();
+    require(nearlyEqual(referenceMaximumTurningRadius(config), 4.0),
+            "reference maximum turning radius must be 4 m");
+}
+
+void testReferenceTurningRadiusWithinBounds() {
+    const Config config = referenceConfig();
+    const double minimum = referenceMinimumTurningRadius(config);
+    const double maximum = referenceMaximumTurningRadius(config);
+    const double turn = referenceTurningRadius(config);
+    require(minimum < turn && turn < maximum &&
+                nearlyEqual(turn, (minimum + maximum) / 2.0),
+            "reference turn radius must be the midpoint within strict bounds");
+}
+
+void testReferenceLeftTurnQuarterCircle() {
+    const Config config = referenceConfig();
+    const CandidatePath path =
+        makeReferenceCandidatePath(config, FlightDirection::Eastbound, Movement::LeftTurn);
+    const TrajectorySegment& arc = arcSegment(path);
+    require(nearlyEqual(arc.radius, referenceTurningRadius(config)) &&
+                nearlyEqual(arc.sweep_angle, std::numbers::pi / 2.0),
+            "same-level left turn must be a continuous positive quarter circle");
+}
+
+void testReferenceRightTurnQuarterCircle() {
+    const Config config = referenceConfig();
+    const CandidatePath path =
+        makeReferenceCandidatePath(config, FlightDirection::Northbound, Movement::RightTurn);
+    const TrajectorySegment& arc = arcSegment(path);
+    require(nearlyEqual(arc.radius, referenceTurningRadius(config)) &&
+                nearlyEqual(arc.sweep_angle, -std::numbers::pi / 2.0),
+            "same-level right turn must be a continuous negative quarter circle");
+}
+
+void testReferenceArcTangents() {
+    const Config config = referenceConfig();
+    for (const auto& [source, movement] : {
+             std::pair{FlightDirection::Eastbound, Movement::LeftTurn},
+             std::pair{FlightDirection::Northbound, Movement::RightTurn}}) {
+        const CandidatePath path = makeReferenceCandidatePath(config, source, movement);
+        const TrajectorySegment& arc = arcSegment(path);
+        const FlightDirection target = referenceTargetDirection(source, movement);
+        const Vector2D incoming = referenceDirectionVector(source);
+        const Vector2D outgoing = referenceDirectionVector(target);
+        const double sign = arc.sweep_angle > 0.0 ? 1.0 : -1.0;
+        const Vector2D start_tangent{
+            sign * -std::sin(arc.start_angle), sign * std::cos(arc.start_angle)};
+        const double end_angle = arc.start_angle + arc.sweep_angle;
+        const Vector2D end_tangent{
+            sign * -std::sin(end_angle), sign * std::cos(end_angle)};
+        require(nearlyEqual(start_tangent.x, incoming.x) &&
+                    nearlyEqual(start_tangent.y, incoming.y) &&
+                    nearlyEqual(end_tangent.x, outgoing.x) &&
+                    nearlyEqual(end_tangent.y, outgoing.y),
+                "arc start/end tangents must match route headings");
+    }
+}
+
+void testReferenceStraightCrossesCenter() {
+    const Config config = referenceConfig();
+    const CandidatePath path =
+        makeReferenceCandidatePath(config, FlightDirection::Northbound, Movement::Straight);
+    require(path.segments.size() == 1U &&
+                path.segments.front().type == SegmentType::HorizontalLine &&
+                nearlyEqual(path.segments.front().start.x, 0.0) &&
+                nearlyEqual(path.segments.front().end.x, 0.0) &&
+                path.segments.front().start.y < 0.0 && path.segments.front().end.y > 0.0,
+            "reference straight path must continuously cross the origin");
+}
+
+void requireDirectionMapping(
+    FlightDirection source,
+    Movement same_level_turn,
+    Movement cross_level_turn,
+    FlightDirection same_target,
+    FlightDirection cross_target) {
+    require(referenceTargetDirection(source, Movement::Straight) == source,
+            "straight target mapping");
+    require(referenceTargetDirection(source, same_level_turn) == same_target &&
+                !referenceMovementChangesLevel(source, same_level_turn),
+            "same-level target mapping");
+    require(referenceTargetDirection(source, cross_level_turn) == cross_target &&
+                referenceMovementChangesLevel(source, cross_level_turn),
+            "cross-level target mapping");
+}
+
+void testReferenceNorthboundMapping() {
+    requireDirectionMapping(
+        FlightDirection::Northbound,
+        Movement::RightTurn,
+        Movement::LeftTurn,
+        FlightDirection::Eastbound,
+        FlightDirection::Westbound);
+}
+
+void testReferenceEastboundMapping() {
+    requireDirectionMapping(
+        FlightDirection::Eastbound,
+        Movement::LeftTurn,
+        Movement::RightTurn,
+        FlightDirection::Northbound,
+        FlightDirection::Southbound);
+}
+
+void testReferenceSouthboundMapping() {
+    requireDirectionMapping(
+        FlightDirection::Southbound,
+        Movement::RightTurn,
+        Movement::LeftTurn,
+        FlightDirection::Westbound,
+        FlightDirection::Eastbound);
+}
+
+void testReferenceWestboundMapping() {
+    requireDirectionMapping(
+        FlightDirection::Westbound,
+        Movement::LeftTurn,
+        Movement::RightTurn,
+        FlightDirection::Southbound,
+        FlightDirection::Northbound);
+}
+
+void testCrossLevelUsesCorrectElevator() {
+    const Config config = referenceConfig();
+    for (const auto& [source, movement] : {
+             std::pair{FlightDirection::Southbound, Movement::LeftTurn},
+             std::pair{FlightDirection::Westbound, Movement::RightTurn}}) {
+        const CandidatePath path = makeReferenceCandidatePath(config, source, movement);
+        const TrajectorySegment& vertical = verticalSegment(path);
+        require(vertical.type == SegmentType::Ascending &&
+                    nearlyEqual(vertical.start.x, -8.0),
+                "ascending movement must use ascent elevator");
+    }
+    for (const auto& [source, movement] : {
+             std::pair{FlightDirection::Northbound, Movement::LeftTurn},
+             std::pair{FlightDirection::Eastbound, Movement::RightTurn}}) {
+        const CandidatePath path = makeReferenceCandidatePath(config, source, movement);
+        const TrajectorySegment& vertical = verticalSegment(path);
+        require(vertical.type == SegmentType::Descending &&
+                    nearlyEqual(vertical.start.x, 8.0),
+                "descending movement must use descent elevator");
+    }
+}
+
+void testSameLevelMovementAvoidsElevators() {
+    const Config config = referenceConfig();
+    for (const auto& [source, movement] : {
+             std::pair{FlightDirection::Northbound, Movement::Straight},
+             std::pair{FlightDirection::Northbound, Movement::RightTurn},
+             std::pair{FlightDirection::Eastbound, Movement::LeftTurn},
+             std::pair{FlightDirection::Southbound, Movement::RightTurn},
+             std::pair{FlightDirection::Westbound, Movement::LeftTurn}}) {
+        const CandidatePath path = makeReferenceCandidatePath(config, source, movement);
+        for (const TrajectorySegment& segment : path.segments) {
+            require(segment.type != SegmentType::Ascending &&
+                        segment.type != SegmentType::Descending,
+                    "same-level movement must not enter an elevator");
+        }
+    }
+}
+
+void testAscendingNeverUsesDescentElevator() {
+    const Config config = referenceConfig();
+    const CandidatePath path = makeReferenceCandidatePath(
+        config, FlightDirection::Southbound, Movement::LeftTurn);
+    const TrajectorySegment& segment = verticalSegment(path);
+    require(segment.type == SegmentType::Ascending && nearlyEqual(segment.start.x, -8.0) &&
+                !nearlyEqual(segment.start.x, 8.0),
+            "ascending movement must not use descent elevator");
+}
+
+void testDescendingNeverUsesAscentElevator() {
+    const Config config = referenceConfig();
+    const CandidatePath path = makeReferenceCandidatePath(
+        config, FlightDirection::Northbound, Movement::LeftTurn);
+    const TrajectorySegment& segment = verticalSegment(path);
+    require(segment.type == SegmentType::Descending && nearlyEqual(segment.start.x, 8.0) &&
+                !nearlyEqual(segment.start.x, -8.0),
+            "descending movement must not use ascent elevator");
+}
+
+void testCrossLevelProjectionConnectors() {
+    const Config config = referenceConfig();
+    const CandidatePath path = makeReferenceCandidatePath(
+        config, FlightDirection::Northbound, Movement::LeftTurn);
+    const TrajectorySegment& vertical = verticalSegment(path);
+    require(path.segments.size() == 4U &&
+                nearlyEqual(path.segments.at(0).end.x, 0.0) &&
+                nearlyEqual(path.segments.at(0).end.y, 0.0) &&
+                nearlyEqual(path.segments.at(1).start.x, 0.0) &&
+                nearlyEqual(path.segments.at(1).end.x, 8.0) &&
+                nearlyEqual(vertical.start.x, 8.0) &&
+                nearlyEqual(path.segments.back().start.y, 0.0),
+            "cross-level connectors must use orthogonal route projections");
+}
+
+CandidatePath referenceShortLine(int id, double x, double z) {
+    return {id,
+            {{{x, -0.3, z}, {x, 0.3, z}, SegmentType::HorizontalLine}}};
+}
+
+void testReferenceHorizontalSeparationConflict() {
+    const Config config = referenceConfig();
+    ReservationTable table(config.nx, config.ny, config.nz);
+    table.reserveTrajectory(makeTimedTrajectory(referenceShortLine(1, 0.0, 60.0), 0.0, config), 1);
+    require(!table.isTrajectoryAvailable(
+                makeTimedTrajectory(referenceShortLine(2, 14.0, 60.0), 0.0, config)),
+            "same-level centers less than 15 m apart must conflict");
+}
+
+void testReferenceHorizontalSeparationAvailable() {
+    const Config config = referenceConfig();
+    ReservationTable table(config.nx, config.ny, config.nz);
+    table.reserveTrajectory(makeTimedTrajectory(referenceShortLine(1, -8.5, 60.0), 0.0, config), 1);
+    require(table.isTrajectoryAvailable(
+                makeTimedTrajectory(referenceShortLine(2, 8.5, 60.0), 0.0, config)),
+            "same-level centers more than 15 m apart must not conflict solely by envelope");
+}
+
+void testReferenceFlightLevelsDoNotConflict() {
+    const Config config = referenceConfig();
+    ReservationTable table(config.nx, config.ny, config.nz);
+    table.reserveTrajectory(makeTimedTrajectory(referenceShortLine(1, 0.0, 60.0), 0.0, config), 1);
+    require(table.isTrajectoryAvailable(
+                makeTimedTrajectory(referenceShortLine(2, 0.0, 90.0), 0.0, config)),
+            "60 m and 90 m flights must not conflict by safety envelope");
+}
+
+void testSameElevatorVerticalConflict() {
+    const Config config = referenceConfig();
+    const CandidatePath ascent{
+        1, {{{-8.0, 0.0, 60.0}, {-8.0, 0.0, 90.0}, SegmentType::Ascending}}};
+    ReservationTable table(config.nx, config.ny, config.nz);
+    table.reserveTrajectory(makeTimedTrajectory(ascent, 0.0, config), 1);
+    require(!table.isTrajectoryAvailable(makeTimedTrajectory(ascent, 0.1, config)),
+            "same-elevator UAVs violating vertical separation must conflict");
+}
+
+void testSeparateElevatorsCanOperateTogether() {
+    const Config config = referenceConfig();
+    const CandidatePath ascent{
+        1, {{{-8.0, 0.0, 60.0}, {-8.0, 0.0, 90.0}, SegmentType::Ascending}}};
+    const CandidatePath descent{
+        2, {{{8.0, 0.0, 90.0}, {8.0, 0.0, 60.0}, SegmentType::Descending}}};
+    ReservationTable table(config.nx, config.ny, config.nz);
+    table.reserveTrajectory(makeTimedTrajectory(ascent, 0.0, config), 1);
+    require(table.isTrajectoryAvailable(makeTimedTrajectory(descent, 0.0, config)),
+            "spatially separated elevators must allow simultaneous operation");
+}
+
+std::vector<UAV> generatedReferenceTraffic(Config config) {
+    const Intersection intersection(config);
+    ReservationTable table(config.nx, config.ny, config.nz);
+    FCFSScheduler scheduler(config, intersection, table);
+    Simulator simulator(config, scheduler);
+    return simulator.referencePoissonTraffic();
+}
+
+void testReferenceArrivalSeedReproducible() {
+    Config config = referenceConfig();
+    config.seed = 2468;
+    const auto first = generatedReferenceTraffic(config);
+    const auto second = generatedReferenceTraffic(config);
+    require(first.size() == second.size(), "reference seeded arrival count");
+    for (std::size_t index = 0; index < first.size(); ++index) {
+        require(first[index].arrival_time == second[index].arrival_time &&
+                    first[index].source_direction == second[index].source_direction,
+                "reference arrivals must be exactly reproducible");
+    }
+}
+
+void testReferenceMovementSeedReproducible() {
+    Config config = referenceConfig();
+    config.seed = 1357;
+    const auto first = generatedReferenceTraffic(config);
+    const auto second = generatedReferenceTraffic(config);
+    require(first.size() == second.size(), "reference seeded movement count");
+    for (std::size_t index = 0; index < first.size(); ++index) {
+        require(first[index].movement == second[index].movement &&
+                    first[index].target_direction == second[index].target_direction &&
+                    first[index].target_level == second[index].target_level,
+                "reference movements must be exactly reproducible");
+    }
+}
+
+void testReferenceLayerChangeRatio() {
+    Config config = referenceConfig();
+    config.seed = 9876;
+    config.simulation_duration = 60000.0;
+    config.reference.arrival_rate_per_route = 6.0;
+    const auto traffic = generatedReferenceTraffic(config);
+    std::size_t changes = 0U;
+    for (const UAV& uav : traffic) {
+        if (uav.source_level != uav.target_level) {
+            ++changes;
+        }
+    }
+    const double ratio = static_cast<double>(changes) / static_cast<double>(traffic.size());
+    require(std::abs(ratio - 0.20) <= 0.02,
+            "large-sample reference layer-change ratio must be near 20%");
+}
+
+void testReferencePerInletMovementRatios() {
+    Config config = referenceConfig();
+    config.seed = 8642;
+    config.simulation_duration = 60000.0;
+    config.reference.arrival_rate_per_route = 6.0;
+    const auto traffic = generatedReferenceTraffic(config);
+    struct Counts {
+        std::size_t total{};
+        std::size_t straight{};
+        std::size_t same_level{};
+        std::size_t cross_level{};
+    };
+    std::array<Counts, 4> counts;
+    for (const UAV& uav : traffic) {
+        Counts& count = counts[static_cast<std::size_t>(uav.source_direction)];
+        ++count.total;
+        if (uav.movement == Movement::Straight) {
+            ++count.straight;
+        } else if (uav.source_level != uav.target_level) {
+            ++count.cross_level;
+        } else {
+            ++count.same_level;
+        }
+    }
+    for (const Counts& count : counts) {
+        const double total = static_cast<double>(count.total);
+        require(std::abs(static_cast<double>(count.straight) / total - 0.40) <= 0.02 &&
+                    std::abs(static_cast<double>(count.same_level) / total - 0.40) <= 0.02 &&
+                    std::abs(static_cast<double>(count.cross_level) / total - 0.20) <= 0.02,
+                "each inlet movement ratios must be near 40/40/20%");
+    }
+}
+
+void testReferenceOccupancyDtSafety() {
+    const Config config = referenceConfig();
+    require(nearlyEqual(config.horizontal_speed * config.occupancy_dt, 0.30) &&
+                config.horizontal_speed * config.occupancy_dt <= 0.5 * config.cube_size,
+            "reference occupancy_dt must satisfy the sampling safety constraint");
+    validateTrajectoryConfig(config);
+}
+
 }  // namespace
 
 int main() {
@@ -484,6 +923,36 @@ int main() {
         {"insufficient height separation conflicts", testInsufficientHeightSeparationConflicts},
         {"unsafe occupancy dt is rejected", testUnsafeOccupancyDtIsRejected},
         {"original EarliestEntry FCFS behavior", testOriginalEarliestEntryFcfsBehavior},
+        {"reference levels and grid", testReferenceLevelsAndGrid},
+        {"reference horizontal travel time", testReferenceHorizontalTravelTime},
+        {"reference ascending travel time", testReferenceAscendingTravelTime},
+        {"reference descending travel time", testReferenceDescendingTravelTime},
+        {"reference minimum turning radius formula", testReferenceMinimumTurningRadiusFormula},
+        {"reference maximum turning radius formula", testReferenceMaximumTurningRadiusFormula},
+        {"reference turning radius within bounds", testReferenceTurningRadiusWithinBounds},
+        {"reference left turn quarter circle", testReferenceLeftTurnQuarterCircle},
+        {"reference right turn quarter circle", testReferenceRightTurnQuarterCircle},
+        {"reference arc tangents", testReferenceArcTangents},
+        {"reference straight crosses center", testReferenceStraightCrossesCenter},
+        {"reference Northbound mapping", testReferenceNorthboundMapping},
+        {"reference Eastbound mapping", testReferenceEastboundMapping},
+        {"reference Southbound mapping", testReferenceSouthboundMapping},
+        {"reference Westbound mapping", testReferenceWestboundMapping},
+        {"cross-level movement uses correct elevator", testCrossLevelUsesCorrectElevator},
+        {"same-level movement avoids elevators", testSameLevelMovementAvoidsElevators},
+        {"ascending never uses descent elevator", testAscendingNeverUsesDescentElevator},
+        {"descending never uses ascent elevator", testDescendingNeverUsesAscentElevator},
+        {"cross-level projection connectors", testCrossLevelProjectionConnectors},
+        {"reference horizontal separation conflict", testReferenceHorizontalSeparationConflict},
+        {"reference horizontal separation available", testReferenceHorizontalSeparationAvailable},
+        {"reference flight levels do not conflict", testReferenceFlightLevelsDoNotConflict},
+        {"same elevator vertical conflict", testSameElevatorVerticalConflict},
+        {"separate elevators operate together", testSeparateElevatorsCanOperateTogether},
+        {"reference arrival seed reproducible", testReferenceArrivalSeedReproducible},
+        {"reference movement seed reproducible", testReferenceMovementSeedReproducible},
+        {"reference layer-change ratio", testReferenceLayerChangeRatio},
+        {"reference per-inlet movement ratios", testReferencePerInletMovementRatios},
+        {"reference occupancy dt safety", testReferenceOccupancyDtSafety},
     };
 
     int failures = 0;

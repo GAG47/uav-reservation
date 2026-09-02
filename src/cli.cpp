@@ -1,5 +1,7 @@
 #include "cli.hpp"
 
+#include "reference_scenario.hpp"
+
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -78,9 +80,9 @@ const char* requireValue(int argc, char* argv[], int& index) {
 }
 
 void validate(const Config& config) {
-    if (config.arrival_rate <= 0.0 || config.simulation_duration <= 0.0 ||
-        config.dt <= 0.0 || config.horizontal_speed <= 0.0 ||
-        config.vertical_speed <= 0.0 || config.cube_size <= 0.0 ||
+    if (config.simulation_duration <= 0.0 || config.dt <= 0.0 ||
+        config.horizontal_speed <= 0.0 || config.ascending_speed <= 0.0 ||
+        config.descending_speed <= 0.0 || config.cube_size <= 0.0 ||
         config.uav_radius <= 0.0 || config.safety_margin < 0.0 ||
         config.occupancy_dt <= 0.0 || config.max_search_time < 0.0) {
         throw std::invalid_argument(
@@ -90,51 +92,111 @@ void validate(const Config& config) {
     if (config.nx < 2 || config.ny < 2 || config.nz < 3) {
         throw std::invalid_argument("Grid dimensions must satisfy nx >= 2, ny >= 2, nz >= 3");
     }
+    if (config.scenario == ScenarioType::Toy && config.arrival_rate <= 0.0) {
+        throw std::invalid_argument("Toy arrival rate must be positive");
+    }
+    if (config.scenario == ScenarioType::Reference2024AlongRoad &&
+        (config.reference.arrival_rate_per_route < 1.0 ||
+         config.reference.arrival_rate_per_route > 6.0)) {
+        throw std::invalid_argument(
+            "Reference arrival rate must be in [1,6] UAV/min/route");
+    }
+}
+
+ScenarioType scenarioFromArguments(int argc, char* argv[]) {
+    ScenarioType scenario = ScenarioType::Toy;
+    for (int index = 1; index < argc; ++index) {
+        if (std::string_view(argv[index]) != "--scenario") {
+            continue;
+        }
+        const char* value = requireValue(argc, argv, index);
+        if (std::string_view(value) == "toy") {
+            scenario = ScenarioType::Toy;
+        } else if (std::string_view(value) == "reference-2024-along-road") {
+            scenario = ScenarioType::Reference2024AlongRoad;
+        } else {
+            throw std::invalid_argument("Invalid value for --scenario: " + std::string(value));
+        }
+    }
+    return scenario;
+}
+
+void requireToyOption(ScenarioType scenario, std::string_view option) {
+    if (scenario != ScenarioType::Toy) {
+        throw std::invalid_argument(
+            std::string(option) + " is fixed by the reference scenario");
+    }
 }
 
 }  // namespace
 
 CommandLineOptions parseCommandLine(int argc, char* argv[]) {
     CommandLineOptions options;
+    options.config = scenarioFromArguments(argc, argv) == ScenarioType::Reference2024AlongRoad
+                         ? makeReference2024Config()
+                         : Config{};
     for (int index = 1; index < argc; ++index) {
         const std::string_view option(argv[index]);
         if (option == "--help" || option == "-h") {
             options.show_help = true;
         } else if (option == "--arrival-rate") {
+            requireToyOption(options.config.scenario, option);
             options.config.arrival_rate = parseDouble(option, requireValue(argc, argv, index));
+        } else if (option == "--arrival-rate-per-route") {
+            if (options.config.scenario != ScenarioType::Reference2024AlongRoad) {
+                throw std::invalid_argument(
+                    "--arrival-rate-per-route requires reference-2024-along-road");
+            }
+            options.config.reference.arrival_rate_per_route =
+                parseDouble(option, requireValue(argc, argv, index));
+        } else if (option == "--scenario") {
+            static_cast<void>(requireValue(argc, argv, index));
         } else if (option == "--duration") {
             options.config.simulation_duration = parseDouble(option, requireValue(argc, argv, index));
         } else if (option == "--seed") {
             options.config.seed = parseSeed(requireValue(argc, argv, index));
         } else if (option == "--mode") {
+            requireToyOption(options.config.scenario, option);
             options.config.layer_mode = parseMode(requireValue(argc, argv, index));
         } else if (option == "--dt") {
             options.config.dt = parseDouble(option, requireValue(argc, argv, index));
         } else if (option == "--horizontal-speed") {
+            requireToyOption(options.config.scenario, option);
             options.config.horizontal_speed =
                 parseDouble(option, requireValue(argc, argv, index));
         } else if (option == "--vertical-speed") {
-            options.config.vertical_speed =
-                parseDouble(option, requireValue(argc, argv, index));
+            requireToyOption(options.config.scenario, option);
+            const double speed = parseDouble(option, requireValue(argc, argv, index));
+            options.config.ascending_speed = speed;
+            options.config.descending_speed = speed;
         } else if (option == "--uav-radius") {
+            requireToyOption(options.config.scenario, option);
             options.config.uav_radius =
                 parseDouble(option, requireValue(argc, argv, index));
         } else if (option == "--safety-margin") {
+            requireToyOption(options.config.scenario, option);
             options.config.safety_margin =
                 parseDouble(option, requireValue(argc, argv, index));
         } else if (option == "--occupancy-dt") {
+            requireToyOption(options.config.scenario, option);
             options.config.occupancy_dt =
                 parseDouble(option, requireValue(argc, argv, index));
         } else if (option == "--cube-size") {
+            requireToyOption(options.config.scenario, option);
             options.config.cube_size = parseDouble(option, requireValue(argc, argv, index));
         } else if (option == "--max-search-time") {
             options.config.max_search_time = parseDouble(option, requireValue(argc, argv, index));
         } else if (option == "--nx") {
+            requireToyOption(options.config.scenario, option);
             options.config.nx = parseInt(option, requireValue(argc, argv, index));
         } else if (option == "--ny") {
+            requireToyOption(options.config.scenario, option);
             options.config.ny = parseInt(option, requireValue(argc, argv, index));
         } else if (option == "--nz") {
+            requireToyOption(options.config.scenario, option);
             options.config.nz = parseInt(option, requireValue(argc, argv, index));
+        } else if (option == "--deterministic") {
+            options.deterministic_traffic = true;
         } else {
             throw std::invalid_argument("Unknown option: " + std::string(option));
         }
@@ -145,7 +207,9 @@ CommandLineOptions parseCommandLine(int argc, char* argv[]) {
 
 void printUsage(std::ostream& output, const char* program_name) {
     output << "Usage: " << program_name << " [options]\n"
+           << "  --scenario NAME        toy or reference-2024-along-road\n"
            << "  --arrival-rate RATE    Total intersection arrival rate in UAV/s\n"
+           << "  --arrival-rate-per-route RATE  Reference UAV/min/route (1-6)\n"
            << "  --duration SECONDS     Observation duration\n"
            << "  --seed INTEGER         Random seed\n"
            << "  --mode MODE            middle_only or three_layers\n"
@@ -158,5 +222,6 @@ void printUsage(std::ostream& output, const char* program_name) {
            << "  --cube-size VALUE      Cube side length\n"
            << "  --max-search-time SEC  Scheduling search horizon\n"
            << "  --nx N --ny N --nz N   Grid dimensions\n"
+           << "  --deterministic         Use deterministic demo traffic\n"
            << "  --help                  Show this help\n";
 }

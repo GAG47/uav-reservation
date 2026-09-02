@@ -7,7 +7,9 @@
 
 enum class Direction { North, South, East, West };
 
-enum class Movement { Straight };
+enum class FlightDirection { Northbound, Eastbound, Southbound, Westbound };
+
+enum class Movement { Straight, LeftTurn, RightTurn };
 
 struct Cube {
     int x{};
@@ -50,6 +52,32 @@ struct CubeHash {
             return "East";
         case Direction::West:
             return "West";
+    }
+    return "Unknown";
+}
+
+[[nodiscard]] constexpr std::string_view toString(FlightDirection direction) {
+    switch (direction) {
+        case FlightDirection::Northbound:
+            return "Northbound";
+        case FlightDirection::Eastbound:
+            return "Eastbound";
+        case FlightDirection::Southbound:
+            return "Southbound";
+        case FlightDirection::Westbound:
+            return "Westbound";
+    }
+    return "Unknown";
+}
+
+[[nodiscard]] constexpr std::string_view toString(Movement movement) {
+    switch (movement) {
+        case Movement::Straight:
+            return "Straight";
+        case Movement::LeftTurn:
+            return "LeftTurn";
+        case Movement::RightTurn:
+            return "RightTurn";
     }
     return "Unknown";
 }

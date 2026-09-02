@@ -16,9 +16,12 @@ public:
 
     [[nodiscard]] std::vector<UAV> deterministicTraffic() const;
     [[nodiscard]] std::vector<UAV> poissonTraffic() const;
+    [[nodiscard]] std::vector<UAV> referenceDeterministicTraffic() const;
+    [[nodiscard]] std::vector<UAV> referencePoissonTraffic() const;
     void run(std::vector<UAV> traffic);
 
     void saveResults(const std::filesystem::path& output_path) const;
+    void saveTrajectoryDebug(const std::filesystem::path& output_path) const;
     [[nodiscard]] SimulationSummary summary() const;
     void printSummary(std::ostream& output) const;
     [[nodiscard]] const std::vector<UAV>& results() const noexcept { return results_; }

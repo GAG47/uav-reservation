@@ -1,5 +1,7 @@
 #include "intersection.hpp"
 
+#include "reference_scenario.hpp"
+
 #include <stdexcept>
 #include <utility>
 
@@ -11,6 +13,25 @@ Intersection::Intersection(int nx, int ny, int nz, double cube_size)
 
     for (Direction source : {Direction::North, Direction::South, Direction::East, Direction::West}) {
         straight_paths_[directionIndex(source)] = buildStraightPaths(source);
+    }
+}
+
+Intersection::Intersection(const Config& config)
+    : Intersection(config.nx, config.ny, config.nz, config.cube_size) {
+    scenario_ = config.scenario;
+    if (scenario_ == ScenarioType::Reference2024AlongRoad) {
+        for (const FlightDirection source : {
+                 FlightDirection::Northbound,
+                 FlightDirection::Eastbound,
+                 FlightDirection::Southbound,
+                 FlightDirection::Westbound}) {
+            for (const Movement movement : {
+                     Movement::Straight, Movement::LeftTurn, Movement::RightTurn}) {
+                const FlightDirection target = referenceTargetDirection(source, movement);
+                reference_paths_[{source, target, movement}] = {
+                    makeReferenceCandidatePath(config, source, movement)};
+            }
+        }
     }
 }
 
@@ -27,6 +48,20 @@ const std::vector<CandidatePath>& Intersection::candidatePaths(
         throw std::invalid_argument("Only straight movement to the opposite side is supported");
     }
     return straight_paths_[directionIndex(source)];
+}
+
+const std::vector<CandidatePath>& Intersection::candidatePaths(
+    FlightDirection source,
+    FlightDirection target,
+    Movement movement) const {
+    if (scenario_ != ScenarioType::Reference2024AlongRoad) {
+        throw std::invalid_argument("FlightDirection paths require the reference scenario");
+    }
+    const auto found = reference_paths_.find({source, target, movement});
+    if (found == reference_paths_.end()) {
+        throw std::invalid_argument("Invalid reference source, target, and movement mapping");
+    }
+    return found->second;
 }
 
 std::vector<Cube> Intersection::straightLine(Direction source) const {
@@ -71,7 +106,7 @@ std::vector<CandidatePath> Intersection::buildStraightPaths(Direction source) co
     const Point3D middle_start = cubeCenter(middle.front());
     const Point3D middle_end = cubeCenter(middle.back());
     std::vector<CandidatePath> paths;
-    paths.push_back({0, {{middle_start, middle_end, SegmentType::Horizontal}}});
+    paths.push_back({0, {{middle_start, middle_end, SegmentType::HorizontalLine}}});
 
     for (const auto& [path_id, height] :
          {std::pair{1, 2}, std::pair{2, 0}}) {
@@ -84,9 +119,13 @@ std::vector<CandidatePath> Intersection::buildStraightPaths(Direction source) co
         paths.push_back({
             path_id,
             {
-                {middle_start, layered_start, SegmentType::Vertical},
-                {layered_start, layered_end, SegmentType::Horizontal},
-                {layered_end, middle_end, SegmentType::Vertical},
+                {middle_start,
+                 layered_start,
+                 height == 2 ? SegmentType::Ascending : SegmentType::Descending},
+                {layered_start, layered_end, SegmentType::HorizontalLine},
+                {layered_end,
+                 middle_end,
+                 height == 2 ? SegmentType::Descending : SegmentType::Ascending},
             },
         });
     }

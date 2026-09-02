@@ -10,6 +10,7 @@ add_library(uav_reservation_core
     src/benchmark.cpp
     src/cli.cpp
     src/intersection.cpp
+    src/reference_scenario.cpp
     src/reservation_table.cpp
     src/scheduler.cpp
     src/simulator.cpp

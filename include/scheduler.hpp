@@ -16,6 +16,8 @@ public:
 
     void schedule(UAV& uav);
     void schedule(UAV& uav, const std::vector<CandidatePath>& candidate_paths);
+    [[nodiscard]] const std::vector<CandidatePath>& candidatePathsFor(
+        const UAV& uav) const;
 
 private:
     const Config& config_;

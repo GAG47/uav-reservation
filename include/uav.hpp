@@ -14,4 +14,9 @@ struct UAV {
     double exit_time{-1.0};
     double delay{-1.0};
     int selected_path_id{-1};
+
+    FlightDirection source_direction{FlightDirection::Northbound};
+    FlightDirection target_direction{FlightDirection::Northbound};
+    double source_level{-1.0};
+    double target_level{-1.0};
 };

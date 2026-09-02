@@ -20,13 +20,22 @@ FCFSScheduler::FCFSScheduler(
 }
 
 void FCFSScheduler::schedule(UAV& uav) {
-    const auto& paths =
-        intersection_.candidatePaths(uav.source, uav.destination, uav.movement);
-    if (config_.layer_mode == LayerMode::MiddleOnly) {
+    const auto& paths = candidatePathsFor(uav);
+    if (config_.scenario == ScenarioType::Toy &&
+        config_.layer_mode == LayerMode::MiddleOnly) {
         schedule(uav, std::vector<CandidatePath>{paths.front()});
         return;
     }
     schedule(uav, paths);
+}
+
+const std::vector<CandidatePath>& FCFSScheduler::candidatePathsFor(
+    const UAV& uav) const {
+    if (config_.scenario == ScenarioType::Reference2024AlongRoad) {
+        return intersection_.candidatePaths(
+            uav.source_direction, uav.target_direction, uav.movement);
+    }
+    return intersection_.candidatePaths(uav.source, uav.destination, uav.movement);
 }
 
 void FCFSScheduler::schedule(UAV& uav, const std::vector<CandidatePath>& candidate_paths) {
@@ -41,7 +50,8 @@ void FCFSScheduler::schedule(UAV& uav, const std::vector<CandidatePath>& candida
         std::optional<TimedTrajectory> best;
 
         for (const CandidatePath& path : candidate_paths) {
-            if (config_.layer_mode == LayerMode::MiddleOnly && path.id != 0) {
+            if (config_.scenario == ScenarioType::Toy &&
+                config_.layer_mode == LayerMode::MiddleOnly && path.id != 0) {
                 continue;
             }
             TimedTrajectory trajectory = makeTimedTrajectory(path, entry_time, config_);

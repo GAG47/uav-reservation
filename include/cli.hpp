@@ -7,6 +7,7 @@
 struct CommandLineOptions {
     Config config;
     bool show_help{};
+    bool deterministic_traffic{};
 };
 
 [[nodiscard]] CommandLineOptions parseCommandLine(int argc, char* argv[]);

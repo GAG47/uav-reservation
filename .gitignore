@@ -1,0 +1,7 @@
+.venv/
+build/
+cmake-build-*/
+__pycache__/
+*.pyc
+results/*.png
+results/*.csv
